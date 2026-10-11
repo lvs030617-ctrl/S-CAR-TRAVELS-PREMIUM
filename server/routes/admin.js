@@ -125,7 +125,74 @@ router.use(requireAdminAuth);
 
 // 3. GET /api/admin/me
 router.get('/me', (req, res) => {
-  res.json({ admin: req.admin });
+  let isDefaultPassword = false;
+  try {
+    const adminRecord = db.prepare('SELECT password_hash FROM admins WHERE id = ?').get(req.admin.id)
+      || db.prepare('SELECT password_hash FROM admins WHERE username = ?').get(req.admin.username);
+    if (adminRecord?.password_hash) {
+      isDefaultPassword = bcrypt.compareSync('Srinu@2026', adminRecord.password_hash);
+    }
+  } catch (e) {}
+
+  res.json({
+    admin: {
+      ...req.admin,
+      usingDefaultPassword: isDefaultPassword
+    }
+  });
+});
+
+// 4. POST /api/admin/change-password
+router.post('/change-password', async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Both current password and new password are required' });
+  }
+
+  if (typeof newPassword !== 'string' || newPassword.trim().length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+  }
+
+  try {
+    const adminRecord = db.prepare('SELECT id, username, email, password_hash FROM admins WHERE id = ?').get(req.admin?.id)
+      || db.prepare('SELECT id, username, email, password_hash FROM admins WHERE username = ?').get(req.admin?.username);
+
+    if (!adminRecord) {
+      return res.status(404).json({ error: 'Admin account not found' });
+    }
+
+    const isValid = bcrypt.compareSync(currentPassword, adminRecord.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Incorrect current password' });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password cannot be identical to current password' });
+    }
+
+    const salt = bcrypt.genSaltSync(10);
+    const newHash = bcrypt.hashSync(newPassword.trim(), salt);
+
+    db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(newHash, adminRecord.id);
+
+    // If Supabase server sync is active, update Supabase auth user as well
+    if (isSupabaseServerConfigured && supabaseAdmin && adminRecord.email) {
+      try {
+        const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
+        const sbUser = usersData?.users?.find(u => u.email?.toLowerCase() === adminRecord.email.toLowerCase());
+        if (sbUser) {
+          await supabaseAdmin.auth.admin.updateUserById(sbUser.id, { password: newPassword.trim() });
+        }
+      } catch (sbErr) {
+        console.warn('Notice: Supabase admin password sync:', sbErr.message);
+      }
+    }
+
+    return res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update password' });
+  }
 });
 
 // 3. GET /api/admin/metrics

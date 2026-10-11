@@ -7,8 +7,8 @@ export default function AdminLogin() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('srinu');
-  const [password, setPassword] = useState('Srinu@2026');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -128,19 +128,6 @@ export default function AdminLogin() {
           </button>
         </form>
 
-        {/* Development credential reminder */}
-        <div style={{
-          marginTop: '1.75rem',
-          padding: '0.85rem',
-          borderRadius: '8px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          border: '1px dashed var(--border-subtle)',
-          fontSize: '0.78rem',
-          color: 'var(--text-dim)',
-          textAlign: 'center'
-        }}>
-          Initial Default Credentials: <code>srinu</code> / <code>Srinu@2026</code>
-        </div>
 
         <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
           <Link to="/" style={{ color: 'var(--gold-bright)', fontSize: '0.85rem' }}>

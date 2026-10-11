@@ -7,8 +7,8 @@ export default function AdminLoginModal({ isOpen, onClose }) {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('srinu');
-  const [password, setPassword] = useState('Srinu@2026');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -146,18 +146,6 @@ export default function AdminLoginModal({ isOpen, onClose }) {
           </button>
         </form>
 
-        <div style={{
-          marginTop: '1.5rem',
-          padding: '0.75rem',
-          borderRadius: '8px',
-          background: 'var(--card-subtle)',
-          border: '1px dashed var(--border-subtle)',
-          fontSize: '0.78rem',
-          color: 'var(--text-dim)',
-          textAlign: 'center'
-        }}>
-          Default credentials: <code>srinu</code> / <code>Srinu@2026</code>
-        </div>
       </div>
     </div>
   );

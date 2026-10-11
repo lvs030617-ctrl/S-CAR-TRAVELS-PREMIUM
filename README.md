@@ -55,7 +55,7 @@ Visit the app at:
 - **Public Customer Website:** `http://localhost:3000/`
 - **Owner Admin Portal:** `http://localhost:3000/admin/login`
   - Default Username: `srinu`
-  - Default Password: `Srinu@2026`
+  - Initial Password: Set securely via `ADMIN_INITIAL_PASSWORD` in your local `.env` (change upon first login)
 
 ---
 

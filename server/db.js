@@ -147,13 +147,27 @@ export function initDatabase() {
 function seedInitialData() {
   // 1. Seed Admin
   const adminCount = db.prepare('SELECT count(*) as count FROM admins').get().count;
+  const initialUser = process.env.ADMIN_INITIAL_USERNAME || 'srinu';
+  const initialPass = process.env.ADMIN_INITIAL_PASSWORD || 'Srinu@2026';
+
   if (adminCount === 0) {
     const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync('Srinu@2026', salt);
+    const hash = bcrypt.hashSync(initialPass, salt);
     db.prepare(`
       INSERT INTO admins (username, email, password_hash, role)
       VALUES (?, ?, ?, ?)
-    `).run('srinu', 'srinu@scar.com', hash, 'superadmin');
+    `).run(initialUser, `${initialUser}@scar.com`, hash, 'superadmin');
+  }
+
+  // Allow secure password override via server-side environment variable (e.g. Render Dashboard)
+  if (process.env.ADMIN_PASSWORD_OVERRIDE && process.env.ADMIN_PASSWORD_OVERRIDE.trim().length >= 8) {
+    const overrideHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD_OVERRIDE.trim(), 10);
+    const updated = db.prepare(`
+      UPDATE admins SET password_hash = ? WHERE username = ? OR role = 'superadmin'
+    `).run(overrideHash, initialUser);
+    if (updated.changes > 0) {
+      console.log('✅ Admin password securely updated via server environment override.');
+    }
   }
 
   // 2. Seed Vehicle (Exactly ONE White Suzuki Ertiga)

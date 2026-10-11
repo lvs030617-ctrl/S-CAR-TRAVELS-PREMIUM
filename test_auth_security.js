@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import fs from 'fs';
 dotenv.config();
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:5000';
@@ -245,6 +246,98 @@ async function runAuthSecurityTests() {
   const configRes = await fetch(`${BASE_URL}/api/public/config`);
   const configText = await configRes.text();
   assert(!configText.includes('JWT_SECRET') && !configText.includes('service_role'), 'Public config endpoint does not leak secret keys');
+
+  // ----------------------------------------------------
+  // TEST 11: Regression Test - Frontend Source & Public Endpoints Zero Default Credential Disclosure
+  // ----------------------------------------------------
+  console.log('\n--- Test 11: Zero Default Credential Disclosure Regression ---');
+  const loginSrc = fs.readFileSync('./src/pages/admin/Login.jsx', 'utf-8');
+  const modalSrc = fs.readFileSync('./src/components/AdminLoginModal.jsx', 'utf-8');
+
+  assert(!loginSrc.includes('Srinu@2026'), 'src/pages/admin/Login.jsx has no hardcoded default password');
+  assert(!loginSrc.includes("useState('srinu')"), 'src/pages/admin/Login.jsx does not pre-fill username');
+  assert(!loginSrc.includes('Initial Default Credentials'), 'src/pages/admin/Login.jsx has no credential reminder box');
+
+  assert(!modalSrc.includes('Srinu@2026'), 'src/components/AdminLoginModal.jsx has no hardcoded default password');
+  assert(!modalSrc.includes("useState('srinu')"), 'src/components/AdminLoginModal.jsx does not pre-fill username');
+  assert(!modalSrc.includes('Default credentials:'), 'src/components/AdminLoginModal.jsx has no credential reminder box');
+
+  // Verify public endpoint config does not leak admin credentials
+  const publicConfig = await fetch(`${BASE_URL}/api/public/config`);
+  const configJson = await publicConfig.json();
+  const configString = JSON.stringify(configJson);
+  assert(!configString.includes('password') && !configString.includes('Srinu@2026'), 'Public config does not disclose credentials');
+
+  // ----------------------------------------------------
+  // TEST 12: Admin Change Password Endpoint Security
+  // ----------------------------------------------------
+  console.log('\n--- Test 12: Admin Password Change Security ---');
+  // 1. Unauthenticated request rejected
+  const unauthChange = await fetch(`${BASE_URL}/api/admin/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword: 'Srinu@2026', newPassword: 'NewStrongPassword2026!' })
+  });
+  assert(unauthChange.status === 401, 'Unauthenticated change-password request rejected with HTTP 401');
+
+  // 2. Short password rejected
+  const shortPassRes = await fetch(`${BASE_URL}/api/admin/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${validToken}`
+    },
+    body: JSON.stringify({ currentPassword: 'Srinu@2026', newPassword: 'short' })
+  });
+  assert(shortPassRes.status === 400, 'Password shorter than 8 characters rejected with HTTP 400');
+
+  // 3. Incorrect current password rejected
+  const badCurrentRes = await fetch(`${BASE_URL}/api/admin/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${validToken}`
+    },
+    body: JSON.stringify({ currentPassword: 'IncorrectOldPassword123', newPassword: 'NewStrongPassword2026!' })
+  });
+  assert(badCurrentRes.status === 401, 'Incorrect current password rejected with HTTP 401');
+
+  // 4. Valid password change succeeds
+  const validChangeRes = await fetch(`${BASE_URL}/api/admin/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${validToken}`
+    },
+    body: JSON.stringify({ currentPassword: 'Srinu@2026', newPassword: 'UpdatedSecretPassword2026#' })
+  });
+  assert(validChangeRes.status === 200, 'Valid password change succeeds with HTTP 200');
+
+  // 5. Verify new password works and old password fails
+  const loginWithOld = await fetch(`${BASE_URL}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'srinu', password: 'Srinu@2026' })
+  });
+  assert(loginWithOld.status === 401, 'Old password no longer valid after change');
+
+  const loginWithNew = await fetch(`${BASE_URL}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'srinu', password: 'UpdatedSecretPassword2026#' })
+  });
+  const newLoginData = await loginWithNew.json();
+  assert(loginWithNew.status === 200, 'New password successfully authenticates admin');
+
+  // Reset back to test baseline so future test runs are idempotent
+  await fetch(`${BASE_URL}/api/admin/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${newLoginData.token}`
+    },
+    body: JSON.stringify({ currentPassword: 'UpdatedSecretPassword2026#', newPassword: 'Srinu@2026' })
+  });
 
   console.log('\n====================================================');
   console.log(`SUMMARY: ${passed} PASSED | ${failed} FAILED`);
