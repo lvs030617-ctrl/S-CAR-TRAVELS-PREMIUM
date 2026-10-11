@@ -1,0 +1,8 @@
+/* App.css — Minimal overrides (the main design system is in index.css) */
+
+/* Override any legacy Vite template styles */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}

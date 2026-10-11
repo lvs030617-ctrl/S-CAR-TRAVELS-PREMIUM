@@ -1,0 +1,34 @@
+services:
+  # Option 1: Unified Full-Stack Service (Recommended)
+  # Serves both Express API and Vite React frontend from a single Render Web Service
+  - type: web
+    name: s-car-travels-premium
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRY
+        value: 8h
+      - key: CORS_ORIGIN
+        value: "" # Leave empty for same-origin or set your custom domain
+      - key: COOKIE_SAMESITE
+        value: lax
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false

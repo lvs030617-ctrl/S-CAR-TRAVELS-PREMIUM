@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <meta name="theme-color" content="#070b14" />
+    
+    <!-- SEO Primary Meta Tags -->
+    <title>S CAR TRAVELS PREMIUM | Kotananduru, Andhra Pradesh | White Suzuki Ertiga Car Rental</title>
+    <meta name="title" content="S CAR TRAVELS PREMIUM | Kotananduru, Andhra Pradesh | White Suzuki Ertiga Car Rental" />
+    <meta name="description" content="S CAR TRAVELS PREMIUM: Mee Prayanam… Maa Badhyata! Professional car rental with driver and self-drive based in Kotananduru, AP. Single pristine white Suzuki Ertiga for temple tours, Vizag, Kakinada, Rajahmundry, Vijayawada &amp; Tirupati. Call Srinu: 9550641408." />
+    <meta name="keywords" content="S Car Travels Kotananduru, car rental Kotananduru, Ertiga rental Kakinada, Tuni car travels, Annavaram temple taxi, Vizag car hire, Srinu car travels Kotananduru, Andhra Pradesh self drive Ertiga" />
+    <meta name="author" content="SRINU, S CAR TRAVELS PREMIUM" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="business.business" />
+    <meta property="og:url" content="https://scartravels.in/" />
+    <meta property="og:title" content="S CAR TRAVELS PREMIUM - Kotananduru, Andhra Pradesh" />
+    <meta property="og:description" content="Mee Prayanam… Maa Badhyata! One pristine white Suzuki Ertiga. Driver &amp; Self-Drive rentals for temple tours &amp; outstation travel. Call Srinu: 9550641408." />
+    <meta property="og:image" content="/images/ertiga-hero.jpg" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content="S CAR TRAVELS PREMIUM - Kotananduru, AP" />
+    <meta property="twitter:description" content="Mee Prayanam… Maa Badhyata! Dedicated White Suzuki Ertiga travel service. Call Srinu: 9550641408." />
+    <meta property="twitter:image" content="/images/ertiga-hero.jpg" />
+
+    <!-- Preconnect & Fonts: Plus Jakarta Sans, Outfit & Noto Sans Telugu -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Telugu:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <!-- CRITICAL: Theme flash prevention — must run synchronously before any paint -->
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('scar_theme');
+          var theme;
+          if (stored === 'light' || stored === 'dark') {
+            theme = stored;
+          } else {
+            // System preference or no preference stored
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+          // Update theme-color meta for browser chrome
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute('content', theme === 'dark' ? '#070b14' : '#F8FAFC');
+          }
+        } catch(e) {
+          // Fallback to dark if localStorage is unavailable
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+
+    <!-- LocalBusiness Structured Data JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "AutoRental",
+      "name": "S CAR TRAVELS PREMIUM",
+      "alternateName": "S Car Travels Kotananduru",
+      "description": "Premium car rental service based in Kotananduru, Andhra Pradesh featuring a pristine white Suzuki Ertiga for driver & self-drive travel, temple tours, and outstation trips.",
+      "slogan": "Mee Prayanam… Maa Badhyata!",
+      "image": "https://scartravels.in/images/ertiga-hero.jpg",
+      "telephone": "+919550641408",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Near Main Road",
+        "addressLocality": "Kotananduru",
+        "addressRegion": "Andhra Pradesh",
+        "postalCode": "533407",
+        "addressCountry": "IN"
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 17.4333,
+        "longitude": 82.2667
+      },
+      "openingHoursSpecification": [
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+          "opens": "06:00",
+          "closes": "22:30"
+        }
+      ],
+      "priceRange": "₹1,000 - ₹27,000",
+      "founder": {
+        "@type": "Person",
+        "name": "SRINU"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
