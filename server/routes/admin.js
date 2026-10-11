@@ -11,6 +11,7 @@ import {
 } from '../auth.js';
 import { checkVehicleConflict } from './public.js';
 import { supabaseAdmin, isSupabaseServerConfigured, testSupabaseServerConnection } from '../supabase.js';
+import { sendBookingNotificationEmail, DEFAULT_ADMIN_EMAIL, DEFAULT_FROM_EMAIL } from '../email.js';
 
 const router = express.Router();
 
@@ -914,6 +915,58 @@ router.put('/settings', async (req, res) => {
     res.json({ success: true, message: 'Settings updated successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// 15. Email Notification Diagnostics
+router.get('/email-status', (req, res) => {
+  const isConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
+  res.json({
+    configured: isConfigured,
+    recipient: process.env.ADMIN_NOTIFICATION_EMAIL || DEFAULT_ADMIN_EMAIL,
+    fromEmail: process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL,
+    provider: 'Resend'
+  });
+});
+
+router.post('/test-email', async (req, res) => {
+  const isConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
+  if (!isConfigured) {
+    return res.status(400).json({
+      error: 'RESEND_API_KEY is not configured on the server. Please set it in your environment variables.'
+    });
+  }
+
+  const sampleBooking = {
+    reference_no: `TEST-${new Date().getFullYear()}-0001`,
+    customer_name: 'Test Customer (Admin Diagnostic)',
+    customer_phone: '9550641408',
+    customer_email: 'test@example.com',
+    service_type: 'with_driver',
+    trip_type: 'round_trip',
+    pickup_location: 'Kotananduru',
+    destination: 'Visakhapatnam Beach',
+    pickup_datetime: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    return_datetime: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+    passengers: 4,
+    luggage_count: 2,
+    estimated_min_price: 3500,
+    estimated_max_price: 4000,
+    special_notes: 'This is a test notification generated from the admin settings dashboard to verify Resend delivery.',
+    hasConflict: false
+  };
+
+  const result = await sendBookingNotificationEmail(sampleBooking);
+  if (result.success) {
+    return res.json({
+      success: true,
+      message: `Test email sent successfully to ${process.env.ADMIN_NOTIFICATION_EMAIL || DEFAULT_ADMIN_EMAIL}`,
+      messageId: result.messageId
+    });
+  } else {
+    return res.status(502).json({
+      error: result.error || 'Failed to deliver test email via Resend'
+    });
   }
 });
 

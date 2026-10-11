@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { supabaseAdmin, isSupabaseServerConfigured, testSupabaseServerConnection } from '../supabase.js';
+import { sendBookingNotificationEmail } from '../email.js';
 
 const router = express.Router();
 
@@ -354,6 +355,28 @@ router.post('/bookings', async (req, res) => {
         console.warn('Notice: Supabase booking sync failed (check schema/keys):', sbErr.message);
       }
     }
+
+    // Send email notification to admin via Resend only after booking has been successfully saved
+    sendBookingNotificationEmail({
+      reference_no: referenceNo,
+      customer_name: customer_name.trim(),
+      customer_phone: formattedPhone,
+      customer_email: customer_email ? customer_email.trim() : null,
+      service_type: service_type || 'with_driver',
+      trip_type: trip_type || 'round_trip',
+      pickup_location: pickup_location.trim(),
+      destination: destination.trim(),
+      pickup_datetime,
+      return_datetime: validReturnDatetime,
+      passengers: passengerCount,
+      luggage_count: parseInt(luggage_count, 10) || 1,
+      estimated_min_price: estMin,
+      estimated_max_price: estMax,
+      special_notes: special_notes ? special_notes.trim() : null,
+      hasConflict: Boolean(conflict.hasConflict)
+    }).catch(emailErr => {
+      console.warn('[Notification] Non-blocking admin email dispatch notice:', emailErr.message);
+    });
 
     // Format prefilled WhatsApp message
     const formattedPickupDate = new Date(pickup_datetime).toLocaleString('en-IN', {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Lock, ShieldAlert, KeyRound, AlertCircle } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Lock, ShieldAlert, KeyRound, AlertCircle, Mail, Send } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { apiUrl } from '../../lib/api';
 
@@ -16,6 +16,12 @@ export default function SettingsManager() {
   const [pwdLoading, setPwdLoading] = useState(false);
   const [pwdError, setPwdError] = useState('');
   const [pwdSuccess, setPwdSuccess] = useState('');
+
+  // Email notifications state
+  const [emailStatus, setEmailStatus] = useState(null);
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testEmailMsg, setTestEmailMsg] = useState('');
+  const [testEmailError, setTestEmailError] = useState('');
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -34,7 +40,30 @@ export default function SettingsManager() {
 
   useEffect(() => {
     fetchSettings();
-  }, [token]);
+    adminFetch('/api/admin/email-status')
+      .then(res => res.json())
+      .then(data => setEmailStatus(data))
+      .catch(() => {});
+  }, [token, adminFetch]);
+
+  const handleTestEmail = async () => {
+    setTestEmailLoading(true);
+    setTestEmailMsg('');
+    setTestEmailError('');
+    try {
+      const res = await adminFetch('/api/admin/test-email', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send test email');
+      }
+      setTestEmailMsg(data.message || 'Test email dispatched successfully! Check your inbox.');
+      setTimeout(() => setTestEmailMsg(''), 8000);
+    } catch (err) {
+      setTestEmailError(err.message || 'Failed to send test email');
+    } finally {
+      setTestEmailLoading(false);
+    }
+  };
 
   const handleChange = (key, val) => {
     setSettings(prev => ({ ...prev, [key]: val }));
@@ -398,6 +427,133 @@ export default function SettingsManager() {
             <span>{pwdLoading ? 'Updating Password...' : 'Update Owner Password'}</span>
           </button>
         </form>
+      </div>
+
+      {/* Admin Email Notifications (Resend) Card */}
+      <div className="gold-card" style={{ padding: '2.5rem', marginTop: '2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: 'rgba(229, 184, 59, 0.15)',
+              border: '1px solid var(--border-gold)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--gold-bright)'
+            }}>
+              <Mail size={20} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--text-main)', margin: 0 }}>
+                Instant Booking Email Notifications
+              </h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: 0 }}>
+                Automatic alerts via Resend when a customer submits a new booking.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            {emailStatus?.configured ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: 'rgba(34, 197, 94, 0.15)',
+                color: '#4ade80',
+                border: '1px solid rgba(34, 197, 94, 0.3)',
+                padding: '0.35rem 0.75rem',
+                borderRadius: '20px',
+                fontSize: '0.8rem',
+                fontWeight: '600'
+              }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#4ade80' }} />
+                Resend Active
+              </span>
+            ) : (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: 'rgba(234, 179, 8, 0.15)',
+                color: '#facc15',
+                border: '1px solid rgba(234, 179, 8, 0.3)',
+                padding: '0.35rem 0.75rem',
+                borderRadius: '20px',
+                fontSize: '0.8rem',
+                fontWeight: '600'
+              }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#facc15' }} />
+                Awaiting RESEND_API_KEY
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--card-subtle)', borderRadius: '8px', padding: '1rem', border: '1px solid var(--border-subtle)', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
+            <span style={{ color: 'var(--text-dim)' }}>Recipient:</span>
+            <code style={{ color: 'var(--gold-bright)' }}>{emailStatus?.recipient || 'srinucartravelsremium@gmail.com'}</code>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
+            <span style={{ color: 'var(--text-dim)' }}>Sender:</span>
+            <span style={{ color: 'var(--text-muted)' }}>{emailStatus?.fromEmail || 'S CAR TRAVELS PREMIUM <onboarding@resend.dev>'}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem' }}>
+            <span style={{ color: 'var(--text-dim)' }}>Engine:</span>
+            <span style={{ color: 'var(--text-muted)' }}>Official Resend Node.js SDK (Zero secrets exposed)</span>
+          </div>
+        </div>
+
+        {testEmailMsg && (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.15)',
+            border: '1px solid rgba(34, 197, 94, 0.35)',
+            color: '#4ade80',
+            padding: '0.85rem 1rem',
+            borderRadius: '8px',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.85rem'
+          }}>
+            <CheckCircle2 size={16} />
+            <span>{testEmailMsg}</span>
+          </div>
+        )}
+
+        {testEmailError && (
+          <div style={{
+            background: 'var(--color-error-bg)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '8px',
+            padding: '0.85rem 1rem',
+            color: 'var(--color-error)',
+            fontSize: '0.85rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <AlertCircle size={16} />
+            <span>{testEmailError}</span>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleTestEmail}
+          disabled={testEmailLoading}
+          className="btn btn-outline-gold"
+          style={{ padding: '0.75rem 1.25rem', fontSize: '0.88rem', gap: '0.5rem' }}
+        >
+          {testEmailLoading ? <span className="spinner" /> : <Send size={15} />}
+          <span>{testEmailLoading ? 'Dispatching Test Notification...' : 'Send Test Notification Email'}</span>
+        </button>
       </div>
     </div>
   );
