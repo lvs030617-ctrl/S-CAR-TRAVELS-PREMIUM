@@ -4,26 +4,21 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { initDatabase } from './db.js';
+import { testSupabaseServerConnection } from './supabase.js';
 import publicRouter from './routes/public.js';
 import adminRouter from './routes/admin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize DB schema & seed data
-initDatabase();
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Reverse-Proxy Trust Configuration:
-// Trust only the immediate front-facing reverse proxy (e.g. Render, Nginx, Cloudflare).
-// Do not blindly set 'trust proxy: true' to avoid accepting spoofed client headers from arbitrary sources.
-if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY) {
-  const trustVal = process.env.TRUST_PROXY ? (Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY) : 1;
-  app.set('trust proxy', trustVal);
-}
+// Trust the immediate front-facing reverse proxy (Render proxy boundary = 1 hop).
+// Uses req.ip derived from the single trusted proxy hop to prevent client header spoofing.
+const trustHops = process.env.TRUST_PROXY ? (Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY) : 1;
+app.set('trust proxy', trustHops);
 
 // Security & Parsing Middleware
 const allowedOrigins = process.env.CORS_ORIGIN
@@ -57,13 +52,18 @@ app.use((req, res, next) => {
 app.use('/api/public', publicRouter);
 app.use('/api/admin', adminRouter);
 
-// Health check
-app.get('/api/health', (req, res) => {
+// Health check endpoint with diagnostic connectivity check
+app.get('/api/health', async (req, res) => {
+  const sbStatus = await testSupabaseServerConnection();
   res.json({
     status: 'ok',
     service: 'S CAR TRAVELS PREMIUM API',
     timestamp: new Date().toISOString(),
-    vehicle: 'White Suzuki Ertiga (Single Fleet)'
+    vehicle: 'White Suzuki Ertiga (Single Fleet)',
+    supabase: {
+      configured: sbStatus.configured,
+      connected: sbStatus.connected
+    }
   });
 });
 

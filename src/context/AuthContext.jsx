@@ -130,44 +130,42 @@ export function AuthProvider({ children }) {
     };
   }, [logout]);
 
-  const login = async (username, password) => {
-    // 1. If Supabase is configured and input has @, attempt Supabase Auth first
-    if (isSupabaseConfigured && username.includes('@')) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: username.trim(),
-          password
-        });
-        if (!error && data?.session) {
-          const adminObj = {
-            id: data.user.id,
-            username: data.user.user_metadata?.username || data.user.email?.split('@')[0] || 'admin',
-            email: data.user.email,
-            role: data.user.app_metadata?.role || data.user.user_metadata?.role || 'admin',
-            isSupabase: true
-          };
-          setToken(data.session.access_token);
-          setAdmin(adminObj);
-          sessionStorage.setItem('scar_admin_token', data.session.access_token);
-          sessionStorage.setItem('scar_admin_info', JSON.stringify(adminObj));
-          return { token: data.session.access_token, admin: adminObj };
-        }
-      } catch (sbLoginErr) {
-        console.warn('Supabase Auth login attempt deferred to local API:', sbLoginErr.message);
-      }
-    }
-
-    // 2. Server login (Sets HttpOnly session cookie + CSRF cookie)
+  /**
+   * Step 1: Initiate Admin Login with registered Email + Password.
+   * Validates credentials and triggers 8-digit OTP email dispatch.
+   * Does NOT issue tokens or set authenticated state.
+   */
+  const initiateLogin = async (email, password) => {
     const res = await fetch(apiUrl('/api/admin/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ email: email?.trim(), password })
     });
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Invalid username or password');
+      throw new Error(data.error || 'Invalid email or password');
+    }
+
+    return data;
+  };
+
+  /**
+   * Step 2: Verify 8-digit OTP code
+   * Validates OTP against hashed challenge in SQLite and issues authenticated session.
+   */
+  const verifyLoginOtp = async (challengeId, otp) => {
+    const res = await fetch(apiUrl('/api/admin/verify-otp'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ challengeId: challengeId?.trim(), otp: otp?.trim() })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Invalid verification code');
     }
 
     setToken(data.token);
@@ -182,6 +180,101 @@ export function AuthProvider({ children }) {
     // Clear legacy storage
     localStorage.removeItem('scar_admin_token');
     localStorage.removeItem('scar_admin_info');
+
+    return data;
+  };
+
+  /**
+   * Resend 8-digit OTP code (with 60-second cooldown check)
+   */
+  const resendLoginOtp = async (challengeId) => {
+    const res = await fetch(apiUrl('/api/admin/resend-otp'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ challengeId: challengeId?.trim() })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to resend verification code');
+    }
+
+    return data;
+  };
+
+  /**
+   * Step 1 (Forgot Password): Request password reset OTP
+   */
+  const forgotPassword = async (email) => {
+    const res = await fetch(apiUrl('/api/admin/forgot-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email: email?.trim() })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to request password reset code');
+    }
+
+    return data;
+  };
+
+  /**
+   * Resend password reset OTP
+   */
+  const resendResetOtp = async (challengeId) => {
+    const res = await fetch(apiUrl('/api/admin/resend-reset-otp'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ challengeId: challengeId?.trim() })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to resend recovery code');
+    }
+
+    return data;
+  };
+
+  /**
+   * Step 2 (Forgot Password): Verify reset OTP -> returns resetToken
+   */
+  const verifyResetOtp = async (challengeId, otp) => {
+    const res = await fetch(apiUrl('/api/admin/verify-reset-otp'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ challengeId: challengeId?.trim(), otp: otp?.trim() })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Invalid or expired verification code');
+    }
+
+    return data;
+  };
+
+  /**
+   * Step 3 (Forgot Password): Set new password using resetToken
+   */
+  const resetPassword = async (resetToken, password) => {
+    const res = await fetch(apiUrl('/api/admin/reset-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ resetToken: resetToken?.trim(), password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to reset password');
+    }
 
     return data;
   };
@@ -220,7 +313,14 @@ export function AuthProvider({ children }) {
         token,
         csrfToken,
         admin,
-        login,
+        login: initiateLogin,
+        initiateLogin,
+        verifyLoginOtp,
+        resendLoginOtp,
+        forgotPassword,
+        resendResetOtp,
+        verifyResetOtp,
+        resetPassword,
         logout,
         adminFetch,
         loading,

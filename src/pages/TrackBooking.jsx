@@ -15,12 +15,6 @@ export default function TrackBooking() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  useEffect(() => {
-    if (searchParams.get('ref')) {
-      handleSearch(searchParams.get('ref'), '');
-    }
-  }, [searchParams]);
-
   const handleSearch = async (refVal, phoneVal) => {
     setErrorMsg('');
     setBooking(null);
@@ -35,21 +29,32 @@ export default function TrackBooking() {
 
     setLoading(true);
     try {
-      const url = apiUrl(`/api/public/bookings/track?reference_no=${encodeURIComponent(refQuery)}&phone=${encodeURIComponent(phoneQuery)}`);
-      const res = await fetch(url);
+      const params = new URLSearchParams();
+      if (refQuery) params.append('reference_no', refQuery);
+      if (phoneQuery) params.append('phone', phoneQuery);
+
+      const res = await fetch(apiUrl(`/api/public/bookings/track?${params.toString()}`));
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || t.trackNotFound);
+        setErrorMsg(data.error || 'Failed to locate booking inquiry');
+      } else {
+        setBooking(data.booking);
       }
-
-      setBooking(data.booking);
-    } catch (err) {
-      setErrorMsg(err.message || t.trackNotFound);
+    } catch (_err) {
+      setErrorMsg('Network error. Please try again or contact Srinu directly.');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (searchParams.get('ref')) {
+      handleSearch(searchParams.get('ref'), '');
+    }
+  }, [searchParams]);
+
+
 
   const onSubmit = (e) => {
     e.preventDefault();

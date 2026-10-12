@@ -41,7 +41,7 @@ export async function testSupabaseClientConnection() {
 
   try {
     const { data, error } = await supabase
-      .from('site_settings')
+      .from('public_site_settings')
       .select('key, value')
       .limit(1);
 

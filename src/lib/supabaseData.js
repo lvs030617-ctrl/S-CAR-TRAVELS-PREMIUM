@@ -3,17 +3,17 @@ import { apiUrl } from './api';
 
 /**
  * Fetch public configuration: vehicle specs, destinations, pricing rules, blocked dates, site settings
+ * Queries sanitized public views when direct Supabase is enabled, or falls back to Express API.
  */
 export async function getPublicConfig() {
-  // If Supabase is configured in the environment, fetch directly from Supabase
   if (isSupabaseConfigured) {
     try {
       const [settingsRes, vehicleRes, destsRes, rulesRes, blockedRes] = await Promise.all([
-        supabase.from('site_settings').select('key, value'),
+        supabase.from('public_site_settings').select('key, value'),
         supabase.from('vehicles').select('*').limit(1).single(),
-        supabase.from('destinations').select('*').eq('active', true).order('display_order', { ascending: true }),
-        supabase.from('pricing_rules').select('*').eq('active', true).order('display_order', { ascending: true }),
-        supabase.from('blocked_dates').select('start_date, end_date, reason').gte('end_date', new Date().toISOString().slice(0, 10))
+        supabase.from('destinations').select('*').eq('active', true).order('sort_order', { ascending: true }),
+        supabase.from('pricing_rules').select('*').eq('active', true).order('sort_order', { ascending: true }),
+        supabase.from('public_blocked_dates').select('start_date, end_date, display_status').gte('end_date', new Date().toISOString().slice(0, 10))
       ]);
 
       if (!settingsRes.error && !vehicleRes.error && !destsRes.error) {
@@ -54,11 +54,10 @@ export async function getPublicConfig() {
 
 /**
  * Submit a customer booking inquiry
- * Uses server endpoint to guarantee rate limiting, conflict check, and phone formatting
+ * Always submit through server endpoint /api/public/bookings to ensure rate limiting,
+ * single-vehicle schedule validation, and phone verification.
  */
 export async function submitBooking(bookingData) {
-  // Always submit through server endpoint /api/public/bookings
-  // The server validates, calculates fares, enforces single vehicle constraints, logs audit, and generates WhatsApp URL
   const res = await fetch(apiUrl('/api/public/bookings'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -74,40 +73,18 @@ export async function submitBooking(bookingData) {
 }
 
 /**
- * Track an existing booking by human-readable reference number or phone
- * Returns phone number safely masked (e.g. 95******08)
+ * Track an existing booking by human-readable reference number and phone.
+ * Routes through the trusted server API to ensure rate limiting, lockout, and dual-matching verification.
  */
 export async function trackBooking(referenceNo, phone) {
-  if (isSupabaseConfigured) {
-    try {
-      const { data, error } = await supabase.rpc('track_booking_public', {
-        p_reference_no: referenceNo ? referenceNo.trim() : null,
-        p_phone: phone ? phone.trim() : null
-      });
+  const params = new URLSearchParams();
+  if (referenceNo) params.set('reference_no', referenceNo.trim());
+  if (phone) params.set('phone', phone.trim());
 
-      if (!error && data && data.length > 0) {
-        return {
-          source: 'supabase',
-          booking: {
-            ...data[0],
-            customer_phone: data[0].customer_phone_masked
-          }
-        };
-      }
-    } catch (err) {
-      console.warn('Supabase track_booking_public RPC failed, falling back to server API:', err);
-    }
-  }
-
-  // Fallback to server API
-  const query = referenceNo
-    ? `reference_no=${encodeURIComponent(referenceNo.trim())}`
-    : `phone=${encodeURIComponent(phone.trim())}`;
-
-  const res = await fetch(apiUrl(`/api/public/bookings/track?${query}`));
+  const res = await fetch(apiUrl(`/api/public/bookings/track?${params.toString()}`));
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error || 'No booking found');
+    throw new Error(data.error || 'No booking found matching provided details');
   }
 
   return { source: 'api', booking: data.booking };

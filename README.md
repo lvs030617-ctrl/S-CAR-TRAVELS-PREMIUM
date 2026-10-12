@@ -19,7 +19,7 @@ Full-stack, mobile-first web application for **S CAR TRAVELS PREMIUM**, a dedica
 - **Styling:** Custom Vanilla CSS Design System with luxury dark navy (`#070b14`) and brushed gold (`#d4af37`) palette, tailored typography (Outfit, Plus Jakarta Sans, Noto Sans Telugu)
 - **Internationalization:** Full bilingual English and Telugu toggle with native Telugu script support
 - **Backend:** Express.js REST API server with rate limiting, input sanitization, and JWT authentication
-- **Database:** Embedded SQLite via `better-sqlite3` with WAL (Write-Ahead Logging) mode, relational tables, foreign keys, and indexes
+- **Database:** Supabase PostgreSQL with Row-Level Security (RLS), ACID advisory locking (`confirm_booking_atomic`), triggers, and audit logging
 - **Integrations:** Direct WhatsApp API link generator (`https://wa.me/919550641408?text=...`) and direct click-to-call (`tel:+919550641408`)
 
 ---

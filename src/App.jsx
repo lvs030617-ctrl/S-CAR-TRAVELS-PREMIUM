@@ -26,6 +26,7 @@ import DestinationsManager from './pages/admin/DestinationsManager';
 import VehicleManager from './pages/admin/VehicleManager';
 import BlockedDatesManager from './pages/admin/BlockedDatesManager';
 import SettingsManager from './pages/admin/SettingsManager';
+import AcceptInvite from './pages/admin/AcceptInvite';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -89,6 +90,7 @@ export default function App() {
 
           {/* Admin Authentication */}
           <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/accept-invite" element={<AcceptInvite />} />
 
           {/* Protected Admin Portal */}
           <Route path="/admin" element={<AdminLayout />}>

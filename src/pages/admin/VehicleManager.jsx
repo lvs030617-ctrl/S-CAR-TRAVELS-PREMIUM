@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Car, Save, ShieldCheck, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Save, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { apiUrl } from '../../lib/api';
 
@@ -11,7 +11,6 @@ export default function VehicleManager() {
   const [featureInput, setFeatureInput] = useState('');
 
   const fetchVehicle = async () => {
-    setLoading(true);
     try {
       const res = await fetch(apiUrl('/api/admin/vehicle'), {
         headers: { Authorization: `Bearer ${token}` }
@@ -26,7 +25,24 @@ export default function VehicleManager() {
   };
 
   useEffect(() => {
-    fetchVehicle();
+    let active = true;
+    async function init() {
+      try {
+        const res = await fetch(apiUrl('/api/admin/vehicle'), {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (active) setVehicle(data.vehicle);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    init();
+    return () => {
+      active = false;
+    };
   }, [token]);
 
   const handleSave = async (e) => {
@@ -45,7 +61,7 @@ export default function VehicleManager() {
         fetchVehicle();
         setTimeout(() => setSuccessMsg(''), 4000);
       }
-    } catch (e) {
+    } catch (_err) {
       alert('Failed to update vehicle');
     }
   };

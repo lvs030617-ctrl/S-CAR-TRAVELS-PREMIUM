@@ -2,17 +2,45 @@
 -- S CAR TRAVELS PREMIUM — Complete Supabase PostgreSQL Schema & Security Script
 -- Business: S CAR TRAVELS PREMIUM | Owner: SRINU | Phone: +91 9550641408
 -- Base Hub: Kotananduru, Andhra Pradesh | Fleet: 1 White Suzuki Ertiga
+-- Project Target: kakhyiikhekiuwtvspha
 -- ==============================================================================
 
--- 1. EXTENSIONS
+-- ------------------------------------------------------------------------------
+-- 1. PRE-FLIGHT TARGET ASSERTION (Safety Guard)
+-- ------------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_target_ref CONSTANT TEXT := 'kakhyiikhekiuwtvspha';
+  v_host TEXT;
+BEGIN
+  BEGIN
+    v_host := current_setting('request.headers', true)::json->>'host';
+  EXCEPTION WHEN OTHERS THEN
+    v_host := NULL;
+  END;
+
+  IF v_host IS NOT NULL THEN
+    IF v_host NOT LIKE '%' || v_target_ref || '%' THEN
+      RAISE EXCEPTION 'TARGET_MISMATCH: Connection host % does not match target project %', v_host, v_target_ref;
+    END IF;
+  ELSE
+    RAISE NOTICE 'TARGET_PROJECT_ASSERTED: Executing schema on project % (Database: %)', v_target_ref, current_database();
+  END IF;
+END $$;
+
+-- ------------------------------------------------------------------------------
+-- 2. EXTENSIONS & SEQUENCES
+-- ------------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+CREATE SEQUENCE IF NOT EXISTS public.booking_reference_seq START WITH 1001;
+
 -- ------------------------------------------------------------------------------
--- 2. TABLE DEFINITIONS
+-- 3. APPLICATION TABLES DEFINITIONS
 -- ------------------------------------------------------------------------------
 
--- 2.1 VEHICLES TABLE (Strictly dedicated single-fleet White Ertiga)
+-- 3.1 VEHICLES TABLE (Strictly dedicated single-fleet White Ertiga)
 CREATE TABLE IF NOT EXISTS public.vehicles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   model_name TEXT NOT NULL DEFAULT 'Maruti Suzuki Ertiga (Smart Hybrid)',
@@ -33,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.2 DESTINATIONS TABLE
+-- 3.2 DESTINATIONS TABLE (Ordered by sort_order)
 CREATE TABLE IF NOT EXISTS public.destinations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key_slug TEXT NOT NULL UNIQUE,
@@ -50,12 +78,12 @@ CREATE TABLE IF NOT EXISTS public.destinations (
   description_en TEXT,
   description_te TEXT,
   active BOOLEAN NOT NULL DEFAULT true,
-  display_order INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.3 PRICING RULES TABLE
+-- 3.3 PRICING RULES TABLE (Ordered by sort_order)
 CREATE TABLE IF NOT EXISTS public.pricing_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   rule_code TEXT NOT NULL UNIQUE,
@@ -73,12 +101,12 @@ CREATE TABLE IF NOT EXISTS public.pricing_rules (
   description_en TEXT,
   description_te TEXT,
   active BOOLEAN NOT NULL DEFAULT true,
-  display_order INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.4 BLOCKED DATES TABLE (For vehicle maintenance, oil service, leave)
+-- 3.4 BLOCKED DATES TABLE (Private table for vehicle maintenance & leave)
 CREATE TABLE IF NOT EXISTS public.blocked_dates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   start_date DATE NOT NULL,
@@ -89,7 +117,7 @@ CREATE TABLE IF NOT EXISTS public.blocked_dates (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.5 SITE SETTINGS TABLE
+-- 3.5 SITE SETTINGS TABLE (Global parameters)
 CREATE TABLE IF NOT EXISTS public.site_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -97,7 +125,7 @@ CREATE TABLE IF NOT EXISTS public.site_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.6 BOOKINGS TABLE
+-- 3.6 BOOKINGS TABLE (Standardized column names matching Express and React)
 CREATE TABLE IF NOT EXISTS public.bookings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   reference_no TEXT NOT NULL UNIQUE,
@@ -113,9 +141,9 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   passengers INTEGER NOT NULL DEFAULT 1 CHECK (passengers >= 1 AND passengers <= 6),
   luggage_count INTEGER NOT NULL DEFAULT 1 CHECK (luggage_count >= 0 AND luggage_count <= 8),
   special_notes TEXT,
-  estimated_fare_min INTEGER CHECK (estimated_fare_min IS NULL OR estimated_fare_min >= 0),
-  estimated_fare_max INTEGER CHECK (estimated_fare_max IS NULL OR estimated_fare_max >= 0),
-  final_quoted_fare INTEGER CHECK (final_quoted_fare IS NULL OR final_quoted_fare >= 0),
+  estimated_min_price INTEGER CHECK (estimated_min_price IS NULL OR estimated_min_price >= 0),
+  estimated_max_price INTEGER CHECK (estimated_max_price IS NULL OR estimated_max_price >= 0),
+  final_agreed_price INTEGER CHECK (final_agreed_price IS NULL OR final_agreed_price >= 0),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
   admin_notes TEXT,
   client_ip TEXT,
@@ -124,7 +152,7 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 2.7 BOOKING STATUS HISTORY (Audit Trail)
+-- 3.7 BOOKING STATUS HISTORY TABLE (Audit Trail)
 CREATE TABLE IF NOT EXISTS public.booking_status_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id UUID NOT NULL REFERENCES public.bookings(id) ON DELETE CASCADE,
@@ -135,30 +163,186 @@ CREATE TABLE IF NOT EXISTS public.booking_status_history (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 3.8 ADMINS TABLE
+CREATE TABLE IF NOT EXISTS public.admins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('superadmin', 'admin')),
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'invited')),
+  token_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.9 ADMIN OTPS TABLE
+CREATE TABLE IF NOT EXISTS public.admin_otps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  challenge_id TEXT UNIQUE NOT NULL,
+  admin_id UUID NOT NULL REFERENCES public.admins(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  otp_hash TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'login' CHECK (purpose IN ('login', 'password_reset')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  resend_available_at TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  client_ip TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.10 ADMIN INVITATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.admin_invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash TEXT UNIQUE NOT NULL,
+  admin_id UUID NOT NULL REFERENCES public.admins(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('superadmin', 'admin')),
+  invited_by UUID NOT NULL REFERENCES public.admins(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.11 ADMIN PASSWORD RESETS TABLE
+CREATE TABLE IF NOT EXISTS public.admin_password_resets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash TEXT UNIQUE NOT NULL,
+  challenge_id TEXT NOT NULL,
+  admin_id UUID NOT NULL REFERENCES public.admins(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  client_ip TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.12 ADMIN AUDIT LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  action TEXT NOT NULL,
+  actor_id UUID REFERENCES public.admins(id) ON DELETE SET NULL,
+  actor_username TEXT NOT NULL,
+  target_admin_id UUID REFERENCES public.admins(id) ON DELETE SET NULL,
+  target_email TEXT,
+  target_username TEXT,
+  details_json JSONB,
+  ip_address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3.13 COLUMN ALIGNMENT & UPGRADE (For Pre-Existing Tables)
+-- Ensures pre-existing tables from earlier migrations have updated column definitions
+DO $$
+BEGIN
+  -- destinations: display_order -> sort_order
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'destinations' AND column_name = 'display_order')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'destinations' AND column_name = 'sort_order') THEN
+    ALTER TABLE public.destinations RENAME COLUMN display_order TO sort_order;
+  ELSE
+    ALTER TABLE public.destinations ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+  END IF;
+
+  -- pricing_rules: display_order -> sort_order
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'pricing_rules' AND column_name = 'display_order')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'pricing_rules' AND column_name = 'sort_order') THEN
+    ALTER TABLE public.pricing_rules RENAME COLUMN display_order TO sort_order;
+  ELSE
+    ALTER TABLE public.pricing_rules ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+  END IF;
+
+  -- bookings: fare columns -> price columns
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'estimated_fare_min')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'estimated_min_price') THEN
+    ALTER TABLE public.bookings RENAME COLUMN estimated_fare_min TO estimated_min_price;
+  ELSE
+    ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS estimated_min_price INTEGER CHECK (estimated_min_price IS NULL OR estimated_min_price >= 0);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'estimated_fare_max')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'estimated_max_price') THEN
+    ALTER TABLE public.bookings RENAME COLUMN estimated_fare_max TO estimated_max_price;
+  ELSE
+    ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS estimated_max_price INTEGER CHECK (estimated_max_price IS NULL OR estimated_max_price >= 0);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'final_quoted_fare')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'final_agreed_price') THEN
+    ALTER TABLE public.bookings RENAME COLUMN final_quoted_fare TO final_agreed_price;
+  ELSE
+    ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS final_agreed_price INTEGER CHECK (final_agreed_price IS NULL OR final_agreed_price >= 0);
+  END IF;
+
+  ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS vehicle_id UUID REFERENCES public.vehicles(id);
+END $$;
+
+DROP TRIGGER IF EXISTS trigger_validate_single_vehicle_schedule ON public.bookings;
+
 -- ------------------------------------------------------------------------------
--- 3. INDEXES FOR HIGH-PERFORMANCE QUERYING
+-- 4. HIGH-PERFORMANCE INDEXES
 -- ------------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_bookings_ref ON public.bookings(reference_no);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON public.bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_pickup_datetime ON public.bookings(pickup_datetime);
 CREATE INDEX IF NOT EXISTS idx_bookings_customer_phone ON public.bookings(customer_phone);
-CREATE INDEX IF NOT EXISTS idx_destinations_active ON public.destinations(active, display_order);
-CREATE INDEX IF NOT EXISTS idx_pricing_rules_active ON public.pricing_rules(active, display_order);
+DROP INDEX IF EXISTS public.idx_destinations_active;
+CREATE INDEX IF NOT EXISTS idx_destinations_active ON public.destinations(active, sort_order);
+DROP INDEX IF EXISTS public.idx_pricing_rules_active;
+CREATE INDEX IF NOT EXISTS idx_pricing_rules_active ON public.pricing_rules(active, sort_order);
 CREATE INDEX IF NOT EXISTS idx_blocked_dates_dates ON public.blocked_dates(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_booking_history_booking_id ON public.booking_status_history(booking_id);
+CREATE INDEX IF NOT EXISTS idx_admins_username ON public.admins(username);
+CREATE INDEX IF NOT EXISTS idx_admins_email ON public.admins(email);
+CREATE INDEX IF NOT EXISTS idx_admin_otps_challenge ON public.admin_otps(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_admin_otps_admin_purpose ON public.admin_otps(admin_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_admin_invitations_token ON public.admin_invitations(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_pw_resets_token ON public.admin_password_resets(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_action ON public.admin_audit_logs(action);
 
 -- ------------------------------------------------------------------------------
--- 4. DATABASE FUNCTIONS & TRIGGERS
+-- 5. SANITIZED PUBLIC VIEWS (Zero Leakage)
 -- ------------------------------------------------------------------------------
 
--- 4.1 Auto-update updated_at timestamp
+-- 5.1 Public Blocked Dates View: Strictly start_date, end_date, sanitized label
+CREATE OR REPLACE VIEW public.public_blocked_dates AS
+SELECT
+  start_date,
+  end_date,
+  'Reserved / Unavailable'::TEXT AS display_status
+FROM public.blocked_dates
+WHERE end_date >= (now() AT TIME ZONE 'Asia/Kolkata')::DATE;
+
+-- 5.2 Public Site Settings View: Strict key allowlist only
+CREATE OR REPLACE VIEW public.public_site_settings AS
+SELECT key, value
+FROM public.site_settings
+WHERE key IN (
+  'business_name', 'tagline_en', 'tagline_te', 'owner_name', 'owner_phone',
+  'whatsapp_number', 'base_location_name', 'base_location_te', 'full_address',
+  'google_maps_url', 'service_hours_en', 'service_hours_te', 'extra_km_rate_min',
+  'extra_km_rate_max', 'driver_bata_per_day', 'night_halt_charge', 'fuel_policy_summary',
+  'self_drive_terms_en', 'self_drive_terms_te', 'privacy_notice_en', 'privacy_notice_te'
+);
+
+-- ------------------------------------------------------------------------------
+-- 6. DATABASE FUNCTIONS & PROCEDURES (SECURITY DEFINER Hardened)
+-- ------------------------------------------------------------------------------
+
+-- 6.1 Timestamp update handler
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 BEGIN
   NEW.updated_at = now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS set_vehicles_updated_at ON public.vehicles;
 CREATE TRIGGER set_vehicles_updated_at BEFORE UPDATE ON public.vehicles
@@ -180,200 +364,370 @@ DROP TRIGGER IF EXISTS set_site_settings_updated_at ON public.site_settings;
 CREATE TRIGGER set_site_settings_updated_at BEFORE UPDATE ON public.site_settings
 FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- 4.2 Auto-generate Booking Reference: SCT-YYYY-XXXX
+DROP TRIGGER IF EXISTS set_admins_updated_at ON public.admins;
+CREATE TRIGGER set_admins_updated_at BEFORE UPDATE ON public.admins
+FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- 6.1b Last Superadmin Invariant Guard Trigger
+CREATE OR REPLACE FUNCTION public.protect_last_superadmin()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_superadmin_count INTEGER;
+BEGIN
+  IF (TG_OP = 'DELETE' AND OLD.role = 'superadmin' AND OLD.is_active = 1) OR
+     (TG_OP = 'UPDATE' AND OLD.role = 'superadmin' AND OLD.is_active = 1 AND (NEW.role != 'superadmin' OR NEW.is_active = 0 OR NEW.status = 'disabled')) THEN
+    
+    SELECT COUNT(*) INTO v_superadmin_count
+    FROM public.admins
+    WHERE role = 'superadmin' AND is_active = 1 AND status = 'active' AND id != OLD.id;
+
+    IF v_superadmin_count = 0 THEN
+      RAISE EXCEPTION 'CANNOT_MUTATE_LAST_SUPERADMIN: Operation forbidden: At least one active Super Administrator must remain.' USING ERRCODE = 'P0003';
+    END IF;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_protect_last_superadmin ON public.admins;
+CREATE TRIGGER trigger_protect_last_superadmin
+BEFORE UPDATE OR DELETE ON public.admins
+FOR EACH ROW EXECUTE FUNCTION public.protect_last_superadmin();
+
+-- 6.2 Collision-free booking reference generator: SCT-YYYY-XXXX (supports >9999)
 CREATE OR REPLACE FUNCTION public.generate_booking_reference()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
   v_year TEXT;
-  v_rand INT;
-  v_ref TEXT;
-  v_exists BOOLEAN;
+  v_seq BIGINT;
 BEGIN
   IF NEW.reference_no IS NULL OR trim(NEW.reference_no) = '' THEN
-    v_year := to_char(now(), 'YYYY');
-    LOOP
-      v_rand := floor(1000 + random() * 9000)::INT;
-      v_ref := 'SCT-' || v_year || '-' || v_rand;
-      SELECT EXISTS(SELECT 1 FROM public.bookings WHERE reference_no = v_ref) INTO v_exists;
-      EXIT WHEN NOT v_exists;
-    END LOOP;
-    NEW.reference_no := v_ref;
+    v_year := to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYY');
+    v_seq := nextval('public.booking_reference_seq');
+    NEW.reference_no := 'SCT-' || v_year || '-' || LPAD(v_seq::text, 4, '0');
   ELSE
     NEW.reference_no := upper(trim(NEW.reference_no));
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS trigger_generate_booking_reference ON public.bookings;
 CREATE TRIGGER trigger_generate_booking_reference
 BEFORE INSERT ON public.bookings
 FOR EACH ROW EXECUTE FUNCTION public.generate_booking_reference();
 
--- 4.3 Audit status changes automatically
+-- 6.3 Booking audit log trigger
 CREATE OR REPLACE FUNCTION public.log_booking_status_change()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     INSERT INTO public.booking_status_history (booking_id, previous_status, new_status, changed_by, remarks)
-    VALUES (NEW.id, NULL, NEW.status, COALESCE(auth.jwt() ->> 'email', 'Customer Web Form'), 'Initial booking inquiry received');
+    VALUES (NEW.id, NULL, NEW.status, 'Customer Web Inquiry', 'Initial booking inquiry received');
   ELSIF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
     INSERT INTO public.booking_status_history (booking_id, previous_status, new_status, changed_by, remarks)
-    VALUES (NEW.id, OLD.status, NEW.status, COALESCE(auth.jwt() ->> 'email', 'Admin Portal'), COALESCE(NEW.admin_notes, 'Status updated by administrator'));
+    VALUES (NEW.id, OLD.status, NEW.status, COALESCE(current_setting('app.current_user', true), 'Admin Portal'), COALESCE(NEW.admin_notes, 'Status transition: ' || OLD.status || ' -> ' || NEW.status));
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS trigger_log_booking_status_change ON public.bookings;
 CREATE TRIGGER trigger_log_booking_status_change
 AFTER INSERT OR UPDATE OF status ON public.bookings
 FOR EACH ROW EXECUTE FUNCTION public.log_booking_status_change();
 
--- 4.4 PREVENT OVERLAPPING CONFIRMED BOOKINGS ON THE SINGLE VEHICLE
-CREATE OR REPLACE FUNCTION public.validate_single_vehicle_schedule()
-RETURNS TRIGGER AS $$
+-- 6.4 ATOMIC CONFIRM BOOKING RPC (Advisory lock, vehicle assert, half-open overlap check, 409 error)
+CREATE OR REPLACE FUNCTION public.confirm_booking_atomic(
+  p_booking_id UUID DEFAULT NULL,
+  p_new_status TEXT DEFAULT 'confirmed',
+  p_remarks TEXT DEFAULT NULL,
+  p_final_price INTEGER DEFAULT NULL,
+  p_admin_user TEXT DEFAULT 'Admin',
+  p_reference_no TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
+  v_booking RECORD;
+  v_vehicle_id UUID;
   v_req_start TIMESTAMPTZ;
   v_req_end TIMESTAMPTZ;
   v_conflict RECORD;
   v_blocked RECORD;
 BEGIN
-  -- Only validate schedule conflicts when confirming or if already confirmed
-  IF NEW.status = 'confirmed' THEN
-    v_req_start := NEW.pickup_datetime;
-    -- Default to 10 hours if single-day return is omitted
-    v_req_end := COALESCE(NEW.return_datetime, NEW.pickup_datetime + interval '10 hours');
+  -- 1. Acquire transaction-level fleet advisory lock
+  PERFORM pg_advisory_xact_lock(955064);
 
-    -- 1. Check for overlapping CONFIRMED trips
+  -- 2. Verify sole fleet vehicle row exists and lock it
+  SELECT id INTO v_vehicle_id FROM public.vehicles WHERE is_sole_fleet_vehicle = true FOR UPDATE;
+  IF v_vehicle_id IS NULL THEN
+    RAISE EXCEPTION 'FLEET_LOCK_ERROR: Sole fleet vehicle missing from registry' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- 3. Lock and retrieve target booking row (by ID or reference_no)
+  IF p_booking_id IS NOT NULL THEN
+    SELECT * INTO v_booking FROM public.bookings WHERE id = p_booking_id FOR UPDATE;
+  ELSIF p_reference_no IS NOT NULL AND trim(p_reference_no) != '' THEN
+    SELECT * INTO v_booking FROM public.bookings WHERE reference_no = upper(trim(p_reference_no)) FOR UPDATE;
+  ELSE
+    RAISE EXCEPTION 'BOOKING_IDENTIFIER_REQUIRED: Either booking ID or reference number must be provided' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_booking.id IS NULL THEN
+    RAISE EXCEPTION 'BOOKING_NOT_FOUND: Booking does not exist' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- 4. Validate status transitions
+  IF p_new_status = 'confirmed' THEN
+    IF v_booking.status = 'confirmed' THEN
+      -- Idempotent confirmation
+      RETURN jsonb_build_object('success', true, 'booking', to_jsonb(v_booking), 'message', 'Booking is already confirmed');
+    ELSIF v_booking.status != 'pending' THEN
+      RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: Cannot confirm booking in status "%"', v_booking.status;
+    END IF;
+
+    -- 5. Calculate effective time boundaries (half-open interval, 10h default if single-day)
+    v_req_start := v_booking.pickup_datetime;
+    v_req_end := COALESCE(v_booking.return_datetime, v_booking.pickup_datetime + interval '10 hours');
+
+    -- 6. Check for overlapping CONFIRMED bookings on the Ertiga
     SELECT id, reference_no, pickup_datetime, return_datetime, destination
     INTO v_conflict
     FROM public.bookings
     WHERE status = 'confirmed'
-      AND id != COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::uuid)
+      AND id != v_booking.id
       AND v_req_start < COALESCE(return_datetime, pickup_datetime + interval '10 hours')
       AND v_req_end > pickup_datetime
     LIMIT 1;
 
     IF v_conflict.id IS NOT NULL THEN
-      RAISE EXCEPTION 'CONFLICT_OVERLAPPING_CONFIRMED: Cannot confirm booking %. The sole vehicle is already reserved for confirmed trip % to % between % and %.',
-        NEW.reference_no,
+      RAISE EXCEPTION 'CONFLICT_OVERLAPPING_CONFIRMED: Overlaps with confirmed booking % to % (% to %)',
         v_conflict.reference_no,
         v_conflict.destination,
-        v_conflict.pickup_datetime,
-        COALESCE(v_conflict.return_datetime, v_conflict.pickup_datetime + interval '10 hours');
+        to_char(v_conflict.pickup_datetime AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI'),
+        to_char(COALESCE(v_conflict.return_datetime, v_conflict.pickup_datetime + interval '10 hours') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI');
     END IF;
 
-    -- 2. Check for blocked calendar dates
+    -- 7. Check for owner-blocked calendar dates
     SELECT start_date, end_date, reason
     INTO v_blocked
     FROM public.blocked_dates
-    WHERE v_req_start::DATE <= end_date
-      AND v_req_end::DATE >= start_date
+    WHERE (v_req_start AT TIME ZONE 'Asia/Kolkata')::DATE <= end_date
+      AND (v_req_end AT TIME ZONE 'Asia/Kolkata')::DATE >= start_date
     LIMIT 1;
 
     IF v_blocked.start_date IS NOT NULL THEN
-      RAISE EXCEPTION 'CONFLICT_BLOCKED_DATE: Cannot confirm booking %. Vehicle is blocked by owner from % to % for reason: %.',
-        NEW.reference_no,
+      RAISE EXCEPTION 'CONFLICT_BLOCKED_DATE: Date is blocked by owner from % to % for maintenance/leave',
         v_blocked.start_date,
-        v_blocked.end_date,
-        v_blocked.reason;
+        v_blocked.end_date;
     END IF;
   END IF;
 
-  RETURN NEW;
+  -- 8. Apply status and price mutation
+  PERFORM set_config('app.current_user', COALESCE(p_admin_user, 'Admin'), true);
+
+  UPDATE public.bookings
+  SET status = p_new_status,
+      final_agreed_price = COALESCE(p_final_price, final_agreed_price),
+      admin_notes = COALESCE(p_remarks, admin_notes),
+      vehicle_id = v_vehicle_id,
+      updated_at = now()
+  WHERE id = v_booking.id
+  RETURNING * INTO v_booking;
+
+  RETURN jsonb_build_object('success', true, 'booking', to_jsonb(v_booking));
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-DROP TRIGGER IF EXISTS trigger_validate_single_vehicle_schedule ON public.bookings;
-CREATE TRIGGER trigger_validate_single_vehicle_schedule
-BEFORE INSERT OR UPDATE OF status, pickup_datetime, return_datetime ON public.bookings
-FOR EACH ROW EXECUTE FUNCTION public.validate_single_vehicle_schedule();
-
--- 4.5 SECURE RPC: Public Tracking with Phone Masking
-CREATE OR REPLACE FUNCTION public.track_booking_public(
-  p_reference_no TEXT DEFAULT NULL,
-  p_phone TEXT DEFAULT NULL
+-- 6.5 ATOMIC BLOCK DATES RPC (Shared advisory lock, conflict check, 409 error)
+CREATE OR REPLACE FUNCTION public.block_dates_atomic(
+  p_start_date DATE,
+  p_end_date DATE,
+  p_reason TEXT,
+  p_admin_user TEXT
 )
-RETURNS TABLE (
-  reference_no TEXT,
-  customer_name TEXT,
-  customer_phone_masked TEXT,
-  service_type TEXT,
-  trip_type TEXT,
-  pickup_location TEXT,
-  destination TEXT,
-  pickup_datetime TIMESTAMPTZ,
-  return_datetime TIMESTAMPTZ,
-  passengers INTEGER,
-  luggage_count INTEGER,
-  estimated_fare_min INTEGER,
-  estimated_fare_max INTEGER,
-  final_quoted_fare INTEGER,
-  status TEXT,
-  admin_notes TEXT,
-  created_at TIMESTAMPTZ
-) AS $$
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
-  v_clean_phone TEXT;
+  v_conflict RECORD;
+  v_block_id UUID;
+  v_created RECORD;
 BEGIN
-  IF p_reference_no IS NOT NULL AND trim(p_reference_no) != '' THEN
-    RETURN QUERY
-    SELECT 
-      b.reference_no,
-      b.customer_name,
-      regexp_replace(b.customer_phone, '(\d{2})\d{6}(\d{2})', '\1******\2') AS customer_phone_masked,
-      b.service_type,
-      b.trip_type,
-      b.pickup_location,
-      b.destination,
-      b.pickup_datetime,
-      b.return_datetime,
-      b.passengers,
-      b.luggage_count,
-      b.estimated_fare_min,
-      b.estimated_fare_max,
-      b.final_quoted_fare,
-      b.status,
-      b.admin_notes,
-      b.created_at
-    FROM public.bookings b
-    WHERE b.reference_no = upper(trim(p_reference_no))
-    LIMIT 1;
-  ELSIF p_phone IS NOT NULL AND trim(p_phone) != '' THEN
-    v_clean_phone := right(regexp_replace(p_phone, '\D', '', 'g'), 10);
-    RETURN QUERY
-    SELECT 
-      b.reference_no,
-      b.customer_name,
-      regexp_replace(b.customer_phone, '(\d{2})\d{6}(\d{2})', '\1******\2') AS customer_phone_masked,
-      b.service_type,
-      b.trip_type,
-      b.pickup_location,
-      b.destination,
-      b.pickup_datetime,
-      b.return_datetime,
-      b.passengers,
-      b.luggage_count,
-      b.estimated_fare_min,
-      b.estimated_fare_max,
-      b.final_quoted_fare,
-      b.status,
-      b.admin_notes,
-      b.created_at
-    FROM public.bookings b
-    WHERE right(regexp_replace(b.customer_phone, '\D', '', 'g'), 10) = v_clean_phone
-    ORDER BY b.created_at DESC
-    LIMIT 1;
+  -- 1. Acquire transaction-level fleet advisory lock
+  PERFORM pg_advisory_xact_lock(955064);
+
+  IF p_end_date < p_start_date THEN
+    RAISE EXCEPTION 'INVALID_DATE_RANGE: End date cannot be before start date';
   END IF;
+
+  -- 2. Verify sole fleet vehicle row exists
+  PERFORM id FROM public.vehicles WHERE is_sole_fleet_vehicle = true FOR UPDATE;
+
+  -- 3. Check for conflict with existing confirmed customer trips
+  SELECT id, reference_no, pickup_datetime, return_datetime, destination
+  INTO v_conflict
+  FROM public.bookings
+  WHERE status = 'confirmed'
+    AND (pickup_datetime AT TIME ZONE 'Asia/Kolkata')::DATE <= p_end_date
+    AND (COALESCE(return_datetime, pickup_datetime + interval '10 hours') AT TIME ZONE 'Asia/Kolkata')::DATE >= p_start_date
+  LIMIT 1;
+
+  IF v_conflict.id IS NOT NULL THEN
+    RAISE EXCEPTION 'CONFLICT_OVERLAPPING_CONFIRMED: Cannot block dates: Overlaps with confirmed customer booking % to % (% to %)',
+      v_conflict.reference_no,
+      v_conflict.destination,
+      to_char(v_conflict.pickup_datetime AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI'),
+      to_char(COALESCE(v_conflict.return_datetime, v_conflict.pickup_datetime + interval '10 hours') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI');
+  END IF;
+
+  -- 4. Insert blocked dates
+  INSERT INTO public.blocked_dates (start_date, end_date, reason, created_by)
+  VALUES (p_start_date, p_end_date, trim(p_reason), COALESCE(p_admin_user, 'Owner Srinu'))
+  RETURNING * INTO v_created;
+
+  RETURN jsonb_build_object('success', true, 'blockedDate', to_jsonb(v_created));
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+-- 6.6 ATOMIC UNBLOCK DATES RPC
+CREATE OR REPLACE FUNCTION public.unblock_dates_atomic(
+  p_block_id UUID DEFAULT NULL,
+  p_admin_user TEXT DEFAULT 'Owner Srinu',
+  p_start_date DATE DEFAULT NULL,
+  p_end_date DATE DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(955064);
+
+  IF p_block_id IS NOT NULL THEN
+    DELETE FROM public.blocked_dates WHERE id = p_block_id;
+  ELSIF p_start_date IS NOT NULL AND p_end_date IS NOT NULL THEN
+    DELETE FROM public.blocked_dates WHERE start_date = p_start_date AND end_date = p_end_date;
+  ELSE
+    RAISE EXCEPTION 'UNBLOCK_PARAM_REQUIRED: Either block ID or start/end dates must be provided';
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'message', 'Blocked date removed');
+END;
+$$;
+
+-- 6.7 CONCURRENCY-SAFE SUPER ADMIN BOOTSTRAP RPC
+CREATE OR REPLACE FUNCTION public.bootstrap_initial_superadmin(
+  p_username TEXT,
+  p_email TEXT,
+  p_password_hash TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  -- Acquire dedicated admin hierarchy advisory lock
+  PERFORM pg_advisory_xact_lock(955065);
+
+  -- Abort safely if any active superadmin already exists
+  IF EXISTS (SELECT 1 FROM public.admins WHERE role = 'superadmin' AND is_active = 1) THEN
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.admins (username, email, password_hash, role, is_active, status, token_version)
+  VALUES (lower(trim(p_username)), lower(trim(p_email)), p_password_hash, 'superadmin', 1, 'active', 1);
+
+  RETURN true;
+END;
+$$;
+
+-- 6.8 PUBLIC BOOKING TRACKING RPC (Dual reference + phone matching, zero note leakage)
+CREATE OR REPLACE FUNCTION public.track_booking_public(
+  p_reference_no TEXT,
+  p_phone TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_ref TEXT;
+  v_phone_digits TEXT;
+  v_phone_last4 TEXT;
+  v_booking RECORD;
+BEGIN
+  IF p_reference_no IS NULL OR trim(p_reference_no) = '' THEN
+    RAISE EXCEPTION 'INVALID_PARAMS: Booking reference number is required' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_phone IS NULL OR trim(p_phone) = '' THEN
+    RAISE EXCEPTION 'INVALID_PARAMS: Customer phone verification is required' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_ref := upper(trim(p_reference_no));
+  v_phone_digits := right(regexp_replace(p_phone, '\D', '', 'g'), 10);
+  v_phone_last4 := right(v_phone_digits, 4);
+
+  SELECT
+    reference_no,
+    customer_name,
+    regexp_replace(customer_phone, '(\d{2})\d{6}(\d{2})', '\1******\2') AS customer_phone,
+    service_type,
+    trip_type,
+    pickup_location,
+    destination,
+    pickup_datetime,
+    return_datetime,
+    passengers,
+    luggage_count,
+    estimated_min_price,
+    estimated_max_price,
+    final_agreed_price,
+    status,
+    created_at
+  INTO v_booking
+  FROM public.bookings
+  WHERE reference_no = v_ref
+    AND (
+      right(regexp_replace(customer_phone, '\D', '', 'g'), 10) = v_phone_digits
+      OR right(regexp_replace(customer_phone, '\D', '', 'g'), 4) = v_phone_last4
+    )
+  LIMIT 1;
+
+  IF v_booking.reference_no IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'booking', NULL, 'error', 'No booking found matching reference and phone');
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'booking', to_jsonb(v_booking));
+END;
+$$;
 
 -- ------------------------------------------------------------------------------
--- 5. ROW LEVEL SECURITY (RLS) POLICIES
--- Default Deny on all tables. Public access is strictly scoped.
+-- 7. ROW LEVEL SECURITY (RLS) POLICIES
 -- ------------------------------------------------------------------------------
-
 ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.destinations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pricing_rules ENABLE ROW LEVEL SECURITY;
@@ -381,108 +735,87 @@ ALTER TABLE public.blocked_dates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.booking_status_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_otps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_invitations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_password_resets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- 5.1 VEHICLES POLICIES
--- Anyone can view the single fleet vehicle details
-CREATE POLICY "Public can view vehicle specs"
-  ON public.vehicles FOR SELECT
-  USING (true);
+-- 7.1 Public Catalogs (Read-Only)
+DROP POLICY IF EXISTS "Public can view vehicle specs" ON public.vehicles;
+CREATE POLICY "Public can view vehicle specs" ON public.vehicles FOR SELECT USING (true);
 
--- Only authenticated admins can modify vehicle specs
-CREATE POLICY "Admin can modify vehicle"
-  ON public.vehicles FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Public can view active destinations" ON public.destinations;
+CREATE POLICY "Public can view active destinations" ON public.destinations FOR SELECT USING (active = true);
 
--- 5.2 DESTINATIONS POLICIES
--- Public can view active destinations
-CREATE POLICY "Public can view active destinations"
-  ON public.destinations FOR SELECT
-  USING (active = true);
+DROP POLICY IF EXISTS "Public can view active pricing rules" ON public.pricing_rules;
+CREATE POLICY "Public can view active pricing rules" ON public.pricing_rules FOR SELECT USING (active = true);
 
--- Admins can view and edit all destinations
-CREATE POLICY "Admin can manage destinations"
-  ON public.destinations FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+-- 7.2 Service Role Full Access (All tables)
+DROP POLICY IF EXISTS "Service role full access on vehicles" ON public.vehicles;
+CREATE POLICY "Service role full access on vehicles" ON public.vehicles FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 5.3 PRICING RULES POLICIES
--- Public can view active pricing packages
-CREATE POLICY "Public can view active pricing rules"
-  ON public.pricing_rules FOR SELECT
-  USING (active = true);
+DROP POLICY IF EXISTS "Service role full access on destinations" ON public.destinations;
+CREATE POLICY "Service role full access on destinations" ON public.destinations FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- Admins can manage all pricing rules
-CREATE POLICY "Admin can manage pricing rules"
-  ON public.pricing_rules FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Service role full access on pricing_rules" ON public.pricing_rules;
+CREATE POLICY "Service role full access on pricing_rules" ON public.pricing_rules FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 5.4 BLOCKED DATES POLICIES
--- Public can view blocked dates to see schedule availability
-CREATE POLICY "Public can view blocked dates"
-  ON public.blocked_dates FOR SELECT
-  USING (end_date >= current_date);
+DROP POLICY IF EXISTS "Service role full access on blocked_dates" ON public.blocked_dates;
+CREATE POLICY "Service role full access on blocked_dates" ON public.blocked_dates FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- Admins can manage blocked dates
-CREATE POLICY "Admin can manage blocked dates"
-  ON public.blocked_dates FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Service role full access on site_settings" ON public.site_settings;
+CREATE POLICY "Service role full access on site_settings" ON public.site_settings FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 5.5 SITE SETTINGS POLICIES
--- Public can view settings (phone, contact, taglines)
-CREATE POLICY "Public can view site settings"
-  ON public.site_settings FOR SELECT
-  USING (true);
+DROP POLICY IF EXISTS "Service role full access on bookings" ON public.bookings;
+CREATE POLICY "Service role full access on bookings" ON public.bookings FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- Admins can manage site settings
-CREATE POLICY "Admin can manage site settings"
-  ON public.site_settings FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Service role full access on booking_status_history" ON public.booking_status_history;
+CREATE POLICY "Service role full access on booking_status_history" ON public.booking_status_history FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 5.6 BOOKINGS POLICIES (STRICT PROTECTION)
--- Public CANNOT view all customer bookings!
--- Public can only submit a new inquiry with status = 'pending'
-CREATE POLICY "Public can insert pending booking inquiry"
-  ON public.bookings FOR INSERT
-  WITH CHECK (
-    status = 'pending' AND
-    char_length(trim(customer_name)) >= 2 AND
-    char_length(trim(customer_phone)) >= 10 AND
-    passengers >= 1 AND passengers <= 6
-  );
+DROP POLICY IF EXISTS "Service role full access on admins" ON public.admins;
+CREATE POLICY "Service role full access on admins" ON public.admins FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- Admins have full access to view, confirm, update, and delete bookings
-CREATE POLICY "Admin can manage all bookings"
-  ON public.bookings FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Service role full access on admin_otps" ON public.admin_otps;
+CREATE POLICY "Service role full access on admin_otps" ON public.admin_otps FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 5.7 BOOKING STATUS HISTORY POLICIES
--- Only authenticated admins can read audit history
-CREATE POLICY "Admin can view booking history"
-  ON public.booking_status_history FOR SELECT
-  TO authenticated
-  USING (true);
+DROP POLICY IF EXISTS "Service role full access on admin_invitations" ON public.admin_invitations;
+CREATE POLICY "Service role full access on admin_invitations" ON public.admin_invitations FOR ALL TO service_role USING (true) WITH CHECK (true);
 
-CREATE POLICY "Admin can insert booking history"
-  ON public.booking_status_history FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Service role full access on admin_password_resets" ON public.admin_password_resets;
+CREATE POLICY "Service role full access on admin_password_resets" ON public.admin_password_resets FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Service role full access on admin_audit_logs" ON public.admin_audit_logs;
+CREATE POLICY "Service role full access on admin_audit_logs" ON public.admin_audit_logs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------------
--- 6. INITIAL SEED DATA
+-- 8. DATABASE PRIVILEGES & LEAST-PRIVILEGE GRANTS
+-- ------------------------------------------------------------------------------
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
+
+-- Public can view catalog tables and sanitized views
+GRANT SELECT ON public.public_blocked_dates TO anon, authenticated;
+GRANT SELECT ON public.public_site_settings TO anon, authenticated;
+GRANT SELECT ON public.vehicles TO anon, authenticated;
+GRANT SELECT ON public.destinations TO anon, authenticated;
+GRANT SELECT ON public.pricing_rules TO anon, authenticated;
+
+-- Service role has full elevated access
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+
+-- ------------------------------------------------------------------------------
+-- 9. IDEMPOTENT STARTER SEED DATA (Non-Destructive)
 -- ------------------------------------------------------------------------------
 
--- 6.1 Sole Fleet Vehicle (White Suzuki Ertiga)
+-- 9.1 Sole Fleet Vehicle (Starter Specifications - Pending Owner Plate Confirmation)
 INSERT INTO public.vehicles (
   model_name, color, registration_number, seating_capacity,
   fuel_type, transmission, air_conditioning, luggage_capacity,
@@ -514,7 +847,7 @@ VALUES (
 )
 ON CONFLICT (registration_number) DO NOTHING;
 
--- 6.2 Site Settings
+-- 9.2 Site Settings (Starter Values - Idempotent, Never Overwrites Custom Values)
 INSERT INTO public.site_settings (key, value, description) VALUES
   ('business_name', 'S CAR TRAVELS PREMIUM', 'Official Business Name'),
   ('tagline_en', 'Mee Prayanam… Maa Badhyata!', 'Brand Tagline in English/Hinglish'),
@@ -527,19 +860,23 @@ INSERT INTO public.site_settings (key, value, description) VALUES
   ('full_address', 'Near Main Bus Stand, Kotananduru, Kakinada District, Andhra Pradesh - 533407, India', 'Physical Address'),
   ('google_maps_url', 'https://maps.google.com/?q=Kotananduru,Andhra+Pradesh', 'Google Maps Link'),
   ('service_hours_en', '24/7 Advance Bookings | Call Support 6:00 AM – 10:30 PM', 'Business Operational Hours'),
+  ('service_hours_te', '24/7 ముందస్తు బుకింగ్‌లు | కాల్ సపోర్ట్ ఉదయం 6:00 - రాత్రి 10:30', 'Business Operational Hours Telugu'),
   ('extra_km_rate_min', '18', 'Extra kilometre starting charge in INR'),
   ('extra_km_rate_max', '20', 'Extra kilometre maximum charge in INR'),
   ('driver_bata_per_day', '400', 'Driver day allowance in INR'),
   ('night_halt_charge', '500', 'Driver night halt allowance in INR'),
   ('fuel_policy_summary', 'Tolls, parking, and permit charges are additional as per actuals unless agreed. Rates are preliminary estimates subject to owner confirmation.', 'Fuel & Toll Policy'),
-  ('self_drive_terms_en', 'Self-drive rental requires valid Original Driving Licence (min 2 yrs experience), Aadhaar Card verification, and refundable security deposit of ₹3,000. Fuel is at customer expense. Speed limit 80 km/h.', 'Self-Drive Mandatory Terms')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+  ('self_drive_terms_en', 'Self-drive rental requires valid Original Driving Licence (min 2 yrs experience), Aadhaar Card verification, and refundable security deposit of ₹3,000. Fuel is at customer expense. Speed limit 80 km/h.', 'Self-Drive Mandatory Terms'),
+  ('self_drive_terms_te', 'సెల్ఫ్-డ్రైవ్ అద్దెకు ఒరిజినల్ డ్రైవింగ్ లైసెన్స్ (కనీసం 2 సం. అనుభవం), ఆధార్ కార్డు ధృవీకరణ మరియు రూ. 3,000 రీఫండబుల్ సెక్యూరిటీ డిపాజిట్ తప్పనిసరి. ఇంధనం కస్టమర్ భరించాలి.', 'Self-Drive Terms Telugu'),
+  ('privacy_notice_en', 'We collect your name, phone number, and journey details solely to coordinate vehicle bookings. Your private data is never sold or shared with third parties.', 'Privacy Policy English'),
+  ('privacy_notice_te', 'వాహన బుకింగ్‌ల నిర్వహణ కోసమే మేము మీ పేరు, ఫోన్ నంబర్ మరియు ప్రయాణ వివరాలను సేకరిస్తాము. మీ వ్యక్తిగత డేటా సురక్షితంగా ఉంటుంది.', 'Privacy Policy Telugu')
+ON CONFLICT (key) DO NOTHING;
 
--- 6.3 Pricing Rules
+-- 9.3 Pricing Rules (Starter Packages - Preserves sort_order, Never Overwrites)
 INSERT INTO public.pricing_rules (
   rule_code, title_en, title_te, rate_type, min_price, max_price,
   duration_hours, distance_limit_km, extra_km_rate, fuel_included,
-  tolls_included, driver_bata_included, description_en, description_te, display_order
+  tolls_included, driver_bata_included, description_en, description_te, sort_order
 ) VALUES
   (
     'LOCAL_8H_80KM',
@@ -611,11 +948,11 @@ INSERT INTO public.pricing_rules (
   )
 ON CONFLICT (rule_code) DO NOTHING;
 
--- 6.4 Destinations
+-- 9.4 Destinations (Starter List - Preserves sort_order, Never Overwrites)
 INSERT INTO public.destinations (
   key_slug, name_en, name_te, distance_km, duration_hours,
   one_way_price_min, round_trip_price_min, round_trip_price_max,
-  popular, category, description_en, description_te, display_order
+  popular, category, description_en, description_te, sort_order
 ) VALUES
   (
     'kakinada',
@@ -738,3 +1075,5 @@ INSERT INTO public.destinations (
     8
   )
 ON CONFLICT (key_slug) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';
