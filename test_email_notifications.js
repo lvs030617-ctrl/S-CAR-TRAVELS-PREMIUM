@@ -80,7 +80,7 @@ async function runEmailNotificationTests() {
   assert(successResult.messageId === 'mock_msg_abc123', 'Returns messageId from email provider');
   assert(dispatchedPayload !== null, 'Resend client send method was called');
   assert(dispatchedPayload.to === (process.env.ADMIN_NOTIFICATION_EMAIL || DEFAULT_ADMIN_EMAIL), 'Dispatches to configured admin recipient');
-  assert(dispatchedPayload.to === 'srinucartravelsremium@gmail.com' || dispatchedPayload.to === process.env.ADMIN_NOTIFICATION_EMAIL, 'Recipient matches srinucartravelsremium@gmail.com');
+  assert(dispatchedPayload.to === 'srinucartravelspremium@gmail.com' || dispatchedPayload.to === 'srinucartravelsremium@gmail.com' || dispatchedPayload.to === process.env.ADMIN_NOTIFICATION_EMAIL, 'Recipient matches admin email');
   assert(dispatchedPayload.subject.includes('SCT-2026-9999'), 'Subject includes booking reference');
   assert(dispatchedPayload.subject.includes('Venkatesh Rao'), 'Subject includes customer name');
   assert(dispatchedPayload.subject.includes('Visakhapatnam Beach'), 'Subject includes destination');

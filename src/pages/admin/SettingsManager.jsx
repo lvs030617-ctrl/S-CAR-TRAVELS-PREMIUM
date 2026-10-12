@@ -684,7 +684,7 @@ export default function SettingsManager() {
         <div style={{ background: 'var(--card-subtle)', borderRadius: '8px', padding: '1rem', border: '1px solid var(--border-subtle)', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
             <span style={{ color: 'var(--text-dim)' }}>Recipient:</span>
-            <code style={{ color: 'var(--gold-bright)' }}>{emailStatus?.recipient || 'srinucartravelsremium@gmail.com'}</code>
+            <code style={{ color: 'var(--gold-bright)' }}>{emailStatus?.recipient || 'srinucartravelspremium@gmail.com'}</code>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
             <span style={{ color: 'var(--text-dim)' }}>Sender:</span>
@@ -694,6 +694,11 @@ export default function SettingsManager() {
             <span style={{ color: 'var(--text-dim)' }}>Engine:</span>
             <span style={{ color: 'var(--text-muted)' }}>Official Resend Node.js SDK (Zero secrets exposed)</span>
           </div>
+          {emailStatus?.isSandbox && (
+            <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.25)', borderRadius: '6px', color: '#facc15', fontSize: '0.8rem', lineHeight: '1.4' }}>
+              <strong>Sandbox Sender Active:</strong> Resend testing domain (<code>onboarding@resend.dev</code>) can only deliver emails to the account owner. To invite other administrators, verify a domain at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold-bright)', textDecoration: 'underline' }}>resend.com/domains</a> and configure <code>RESEND_FROM_EMAIL</code> in Render.
+            </div>
+          )}
         </div>
 
         {testEmailMsg && (

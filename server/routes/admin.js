@@ -29,6 +29,7 @@ import {
   sendAdminInvitationEmail,
   sendAdminPasswordResetOtpEmail,
   sendAdminPasswordChangedEmail,
+  getFromEmail,
   DEFAULT_ADMIN_EMAIL,
   DEFAULT_FROM_EMAIL
 } from '../email.js';
@@ -1864,10 +1865,14 @@ router.put('/settings', async (req, res) => {
 // 15. Email Notification Diagnostics
 router.get('/email-status', (req, res) => {
   const isConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
+  const fromEmail = getFromEmail();
+  const isSandbox = fromEmail.includes('onboarding@resend.dev');
+
   res.json({
     configured: isConfigured,
     recipient: process.env.ADMIN_NOTIFICATION_EMAIL || DEFAULT_ADMIN_EMAIL,
-    fromEmail: process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL,
+    fromEmail,
+    isSandbox,
     provider: 'Resend'
   });
 });
@@ -1991,12 +1996,17 @@ router.post('/accounts/invite', requireSuperAdmin, async (req, res) => {
     // Prevent duplicate username or email
     const { data: existingAdmin } = await supabaseAdmin
       .from('admins')
-      .select('id, username, email')
+      .select('id, username, email, status')
       .or(`email.ilike.${cleanEmail},username.ilike.${cleanUsername}`)
       .maybeSingle();
 
     if (existingAdmin) {
       if (existingAdmin.email.toLowerCase() === cleanEmail) {
+        if (existingAdmin.status === 'invited') {
+          return res.status(409).json({
+            error: `An invitation for ${cleanEmail} is already pending. You can click 'Resend Invite' or 'Delete' in the Administrator Accounts list below.`
+          });
+        }
         return res.status(400).json({ error: 'An administrator with this email address already exists.' });
       }
       return res.status(400).json({ error: 'An administrator with this username already exists.' });
@@ -2024,7 +2034,7 @@ router.post('/accounts/invite', requireSuperAdmin, async (req, res) => {
     const expiresHours = 48;
     const expiresAt = new Date(Date.now() + expiresHours * 3600 * 1000).toISOString();
 
-    await supabaseAdmin.from('admin_invitations').insert({
+    const { error: inviteInsertErr } = await supabaseAdmin.from('admin_invitations').insert({
       token_hash: tokenHash,
       admin_id: newAdmin.id,
       email: cleanEmail,
@@ -2033,14 +2043,44 @@ router.post('/accounts/invite', requireSuperAdmin, async (req, res) => {
       expires_at: expiresAt
     });
 
+    if (inviteInsertErr) {
+      await supabaseAdmin.from('admins').delete().eq('id', newAdmin.id);
+      throw inviteInsertErr;
+    }
+
+    const frontendBaseUrl = req.headers.origin || process.env.APP_BASE_URL || process.env.FRONTEND_URL || (process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',')[0].trim() : '') || 'https://s-car-travels-premium.onrender.com';
+
     const emailResult = await sendAdminInvitationEmail({
       email: cleanEmail,
       adminName: cleanUsername,
       inviteToken: rawToken,
       role: assignedRole,
       invitedByName: req.admin.username,
+      frontendBaseUrl,
       expiresHours
     });
+
+    if (!emailResult.success) {
+      // Roll back the pending invitation and admin record so:
+      // 1. The database is not left in a misleading "Pending Invite" state
+      // 2. The Super Admin is not blocked from retrying once the sender domain is verified in Resend
+      await supabaseAdmin.from('admin_invitations').delete().eq('admin_id', newAdmin.id);
+      await supabaseAdmin.from('admins').delete().eq('id', newAdmin.id);
+
+      await recordAdminAuditLog({
+        action: 'ADMIN_INVITE_FAILED',
+        actorId: req.admin.id,
+        actorUsername: req.admin.username,
+        targetEmail: cleanEmail,
+        targetUsername: cleanUsername,
+        details: { role: assignedRole, error: emailResult.error },
+        ipAddress: clientIp
+      });
+
+      return res.status(502).json({
+        error: `Invitation email could not be delivered: ${emailResult.error || 'Resend delivery failed'}. The pending invitation was rolled back so you can retry once the sender domain is verified.`
+      });
+    }
 
     await recordAdminAuditLog({
       action: 'ADMIN_INVITED',
@@ -2049,14 +2089,14 @@ router.post('/accounts/invite', requireSuperAdmin, async (req, res) => {
       targetAdminId: newAdmin.id,
       targetEmail: cleanEmail,
       targetUsername: cleanUsername,
-      details: { role: assignedRole, expiresHours, emailSent: emailResult.success },
+      details: { role: assignedRole, expiresHours, emailSent: true },
       ipAddress: clientIp
     });
 
     res.status(201).json({
       success: true,
       message: `Invitation successfully sent to ${cleanEmail}. The recipient has 48 hours to activate their account.`,
-      emailSent: emailResult.success,
+      emailSent: true,
       admin: {
         id: newAdmin.id,
         username: cleanUsername,
@@ -2094,17 +2134,46 @@ router.post('/accounts/:id/resend-invite', requireSuperAdmin, async (req, res) =
       return res.status(400).json({ error: 'Only pending invited accounts can receive invitation resends.' });
     }
 
-    // Invalidate existing invitations
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresHours = 48;
+    const expiresAt = new Date(Date.now() + expiresHours * 3600 * 1000).toISOString();
+
+    const frontendBaseUrl = req.headers.origin || process.env.APP_BASE_URL || process.env.FRONTEND_URL || (process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',')[0].trim() : '') || 'https://s-car-travels-premium.onrender.com';
+
+    const emailResult = await sendAdminInvitationEmail({
+      email: target.email,
+      adminName: target.username,
+      inviteToken: rawToken,
+      role: target.role,
+      invitedByName: req.admin.username,
+      frontendBaseUrl,
+      expiresHours
+    });
+
+    if (!emailResult.success) {
+      await recordAdminAuditLog({
+        action: 'ADMIN_INVITE_RESEND_FAILED',
+        actorId: req.admin.id,
+        actorUsername: req.admin.username,
+        targetAdminId: target.id,
+        targetEmail: target.email,
+        targetUsername: target.username,
+        details: { role: target.role, error: emailResult.error },
+        ipAddress: clientIp
+      });
+
+      return res.status(502).json({
+        error: `Failed to deliver invitation email to ${target.email}: ${emailResult.error || 'Resend delivery failed'}. Please ensure your sender domain is verified in Resend.`
+      });
+    }
+
+    // Invalidate existing invitations only after delivery succeeds
     await supabaseAdmin
       .from('admin_invitations')
       .update({ used_at: new Date().toISOString() })
       .eq('admin_id', target.id)
       .is('used_at', null);
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresHours = 48;
-    const expiresAt = new Date(Date.now() + expiresHours * 3600 * 1000).toISOString();
 
     await supabaseAdmin.from('admin_invitations').insert({
       token_hash: tokenHash,
@@ -2115,15 +2184,6 @@ router.post('/accounts/:id/resend-invite', requireSuperAdmin, async (req, res) =
       expires_at: expiresAt
     });
 
-    const emailResult = await sendAdminInvitationEmail({
-      email: target.email,
-      adminName: target.username,
-      inviteToken: rawToken,
-      role: target.role,
-      invitedByName: req.admin.username,
-      expiresHours
-    });
-
     await recordAdminAuditLog({
       action: 'ADMIN_INVITE_RESENT',
       actorId: req.admin.id,
@@ -2131,14 +2191,14 @@ router.post('/accounts/:id/resend-invite', requireSuperAdmin, async (req, res) =
       targetAdminId: target.id,
       targetEmail: target.email,
       targetUsername: target.username,
-      details: { role: target.role, expiresHours, emailSent: emailResult.success },
+      details: { role: target.role, expiresHours, emailSent: true },
       ipAddress: clientIp
     });
 
     res.json({
       success: true,
-      message: `Invitation resent to ${target.email}.`,
-      emailSent: emailResult.success
+      message: `Invitation successfully resent to ${target.email}.`,
+      emailSent: true
     });
   } catch (err) {
     console.error('Error resending invite in Supabase:', err);

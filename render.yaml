@@ -35,6 +35,6 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: ADMIN_NOTIFICATION_EMAIL
-        value: srinucartravelsremium@gmail.com
+        value: srinucartravelspremium@gmail.com
       - key: RESEND_FROM_EMAIL
         value: S CAR TRAVELS PREMIUM <onboarding@resend.dev>

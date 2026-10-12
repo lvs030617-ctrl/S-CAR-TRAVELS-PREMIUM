@@ -1,8 +1,17 @@
 import { Resend } from 'resend';
 
 // Default recipient if not configured in environment
-export const DEFAULT_ADMIN_EMAIL = 'srinucartravelsremium@gmail.com';
+export const DEFAULT_ADMIN_EMAIL = 'srinucartravelspremium@gmail.com';
 export const DEFAULT_FROM_EMAIL = 'S CAR TRAVELS PREMIUM <onboarding@resend.dev>';
+
+/**
+ * Resolves the sanitized sender email address from environment.
+ * Strips accidental surrounding quotes and falls back safely to DEFAULT_FROM_EMAIL.
+ */
+export function getFromEmail() {
+  const envFrom = (process.env.RESEND_FROM_EMAIL || '').trim().replace(/^["']|["']$/g, '');
+  return envFrom && envFrom.length > 0 ? envFrom : DEFAULT_FROM_EMAIL;
+}
 
 /**
  * Returns an instance of the Resend client if RESEND_API_KEY is configured.
@@ -300,7 +309,7 @@ export async function sendBookingNotificationEmail(booking, customClient = null)
   }
 
   const toEmail = process.env.ADMIN_NOTIFICATION_EMAIL || DEFAULT_ADMIN_EMAIL;
-  const fromEmail = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL;
+  const fromEmail = getFromEmail();
   const subject = `🚗 New Booking [${booking.reference_no}]: ${booking.customer_name} → ${booking.destination}`;
 
   try {
@@ -492,7 +501,7 @@ export async function sendAdminLoginOtpEmail({ email, adminName, otp, expiresMin
     };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL;
+  const fromEmail = getFromEmail();
   const subject = `🔐 S CAR TRAVELS PREMIUM - Admin Login Code`;
 
   try {
@@ -692,7 +701,7 @@ export async function sendAdminInvitationEmail({ email, adminName, role, inviteT
     };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL;
+  const fromEmail = getFromEmail();
   const subject = `✉️ Invitation to join S CAR TRAVELS PREMIUM as ${role === 'superadmin' ? 'Super Administrator' : 'Administrator'}`;
 
   try {
@@ -711,7 +720,8 @@ export async function sendAdminInvitationEmail({ email, adminName, role, inviteT
       console.warn('[Admin Invite] Resend delivery error for admin invitation:', error.message || error);
       return {
         success: false,
-        error: error.message || 'Resend delivery failed'
+        error: error.message || 'Resend delivery failed',
+        inviteUrl
       };
     }
 
@@ -725,7 +735,8 @@ export async function sendAdminInvitationEmail({ email, adminName, role, inviteT
     console.warn('[Admin Invite] Exception while sending admin invitation email:', err.message);
     return {
       success: false,
-      error: err.message
+      error: err.message,
+      inviteUrl
     };
   }
 }
@@ -875,7 +886,7 @@ export async function sendAdminPasswordResetOtpEmail({ email, adminName, otp, ex
     };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL;
+  const fromEmail = getFromEmail();
   const subject = `🔐 S CAR TRAVELS PREMIUM - Password Reset Code`;
 
   try {
@@ -1013,7 +1024,7 @@ export async function sendAdminPasswordChangedEmail({ email, adminName, timestam
     return { success: false, skipped: true };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL;
+  const fromEmail = getFromEmail();
   const subject = `🛡️ S CAR TRAVELS PREMIUM - Password Changed`;
 
   try {
